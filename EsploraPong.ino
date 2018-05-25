@@ -1,35 +1,34 @@
-
-
-
-
 #include <TFT.h>
 #include <SPI.h>
 #include <Esplora.h>
 
 TFT screen = TFT(7, 0, 1);
 
+//#define SINGLEPLAYER 1
+#define MULTIPLAYER 1
+
 struct Paddle 
 {
 	byte posX = 5;
 	byte posY = 5;
+	byte oldX, oldY;
 	byte width = 2;
 	byte lenght = 20;
 	byte score = 0;
-	int color = 0xFFFF00;
+	int32_t color = 0xFFFF00;
 };
 
 struct Ball
 {
 	byte posX = screen.width() / 2;
 	byte posY = screen.height() / 2;
+	byte oldX, oldY;
 	byte radius = 2;
 
 	int8_t speedX = 1;
 	int8_t speedY = 1;
 
-	int color = 0xFFFFFF;
-	
-
+	int32_t color = 0xFFFFFF;
 };
 
 Paddle leftPaddle;
@@ -41,6 +40,7 @@ int movementButtons[2] = { SWITCH_DOWN, SWITCH_UP };
 void movePaddle(Paddle& paddle, int8_t movement);
 void displayPaddle(Paddle& paddle);
 void clearPaddle(Paddle& paddle);
+void resetPaddle(Paddle& paddle);
 
 void moveBall(Ball& ball);
 void displayBall(Ball& ball);
@@ -48,10 +48,11 @@ void clearBall(Ball& ball);
 void resetBall(Ball& ball);
 bool isBallOut(Ball& ball);
 
+int8_t getAIMovement(Paddle& AIPaddle, Ball& ball);
+
 void checkPaddleBallCollision(Paddle& paddle, Ball& ball);
 
 void displayScore();
-
 
 int8_t normalizeJoystickInput()
 {
@@ -95,8 +96,23 @@ int8_t normalizeButtonInput()
 	}
 }
 
+int8_t getAIMovement(Paddle& AIPaddle, Ball& ball)
+{
+	if ((AIPaddle.posY + (AIPaddle.lenght / 2)) > ball.posY)
+	{
+		return -1;
+	}
+	else if ((AIPaddle.posY + (AIPaddle.lenght / 2)) < ball.posY)
+	{
+		return 1;
+	}
+	else
+		return 0;
+}
+
 void movePaddle(Paddle& paddle, int8_t movement)
 {
+	paddle.oldY = paddle.posY;
 	if (paddle.posY + movement < 0 //check whether the paddle is heading out of bounds
 	|| ((paddle.posY + paddle.lenght) + movement) > screen.height()) return;
 
@@ -105,6 +121,9 @@ void movePaddle(Paddle& paddle, int8_t movement)
 
 void moveBall(Ball& ball)
 {
+	ball.oldX = ball.posX;
+	ball.oldY = ball.posY;
+
 	ball.posX += ball.speedX;
 
 	if (ball.posY + ball.radius <= 0 || ball.posY + ball.radius >= screen.height())
@@ -114,8 +133,6 @@ void moveBall(Ball& ball)
 	ball.posY += ball.speedY;
 }
 
-
-
 void displayPaddle(Paddle& paddle)
 {
 	screen.fillRect(paddle.posX, paddle.posY, paddle.width, paddle.lenght, paddle.color);
@@ -123,7 +140,13 @@ void displayPaddle(Paddle& paddle)
 
 void clearPaddle(Paddle& paddle)
 {
-	screen.fillRect(paddle.posX, paddle.posY, paddle.width, paddle.lenght, 0x00);
+	if (paddle.oldY == paddle.posY) return; //do not redraw paddle if it hasn't moved.
+	screen.fillRect(paddle.posX, paddle.oldY, paddle.width, paddle.lenght, 0x00);
+}
+
+void resetPaddle(Paddle& paddle)
+{
+	paddle.posY = screen.height() / 2;
 }
 
 void displayBall(Ball& ball)
@@ -143,10 +166,10 @@ void resetBall(Ball& ball)
 	ball.posY = screen.height() / 2;
 }
 
-
 void checkPaddleBallCollision(Paddle& paddle, Ball& ball)
 {
-	//offset allows to react appropriately to the paddles width (as in the ball will not "sink into" the paddle, 
+	//offset allows to react appropriately to the paddles width 
+	//(as in the ball will not "sink into" the paddle), 
 	//while still being able to use one function for both paddles
 
 	int offsetX = 0;
@@ -182,9 +205,9 @@ bool isBallOut(Ball& ball)
 		rightPaddle.score++;
 		return true;
 	}
+
 	else return false;
 }
-
 
 void displayScore()
 {
@@ -204,30 +227,32 @@ void displayScore()
 
 	leftScore.toCharArray(printoutLeft, 4);
 	screen.text(printoutLeft, 65, 120);
-
-	
 }
 
-
-void setup() {
-  // put your setup code here, to run once:
+void setup() 
+{
 	rightPaddle.posX = 150;
 	rightPaddle.color = 0xFF00FF;
 
 	screen.begin();
 	screen.background(0x00);
-	screen.stroke(255, 255, 255);
+	screen.fill(255, 255, 255);
 	screen.setTextSize(1);
 	delay(1000);
-
 }
 
-void loop() {
-  // put your main code here, to run repeatedly:
-
+void loop() 
+{
 	//get input from user
 	movePaddle(leftPaddle, normalizeJoystickInput() * 2);
+
+#ifdef SINGLEPLAYER
+	movePaddle(rightPaddle, getAIMovement(rightPaddle, ball1) * random(0, 3));
+#endif // SINGLEPLAYER
+
+#ifdef MULTIPLAYER
 	movePaddle(rightPaddle, normalizeButtonInput() * 2);
+#endif // MULTIPLAYER
 	moveBall(ball1);
 
 	//physics
@@ -238,15 +263,15 @@ void loop() {
 	{
 		resetBall(ball1);
 		displayScore();
+		resetPaddle(leftPaddle);
+		resetPaddle(rightPaddle);
 	}
-	
 
 	//display to user
 	displayPaddle(leftPaddle);
 	displayPaddle(rightPaddle);
 	displayBall(ball1);
 	
-
 	//frame timing based on potentiometer slider
 	delay(map(Esplora.readSlider(), 0, 1023, 5, 25));
 
@@ -254,7 +279,5 @@ void loop() {
 	clearPaddle(leftPaddle);
 	clearPaddle(rightPaddle);
 	clearBall(ball1);
-
-
 
 }
